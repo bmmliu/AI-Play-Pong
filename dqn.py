@@ -5,8 +5,11 @@ import torch
 import torch.nn as nn
 import torch.autograd as autograd
 import math, random
+
 USE_CUDA = torch.cuda.is_available()
-Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args, **kwargs)
+Variable = lambda *args, **kwargs: autograd.Variable(*args, **kwargs).cuda() if USE_CUDA else autograd.Variable(*args,
+                                                                                                                **kwargs)
+
 
 class QLearner(nn.Module):
     def __init__(self, env, num_frames, batch_size, gamma, replay_buffer):
@@ -28,32 +31,29 @@ class QLearner(nn.Module):
             nn.Conv2d(64, 64, kernel_size=3, stride=1),
             nn.ReLU()
         )
-        
+
         self.fc = nn.Sequential(
             nn.Linear(self.feature_size(), 512),
             nn.ReLU(),
             nn.Linear(512, self.num_actions)
         )
-        
+
     def forward(self, x):
         x = self.features(x)
         x = x.view(x.size(0), -1)
         x = self.fc(x)
         return x
-    
+
     def feature_size(self):
-            return self.features(autograd.Variable(torch.zeros(1, *self.input_shape))).view(1, -1).size(1)
-    
+        return self.features(autograd.Variable(torch.zeros(1, *self.input_shape))).view(1, -1).size(1)
+
     def act(self, state, epsilon):
         if random.random() > epsilon:
             state = Variable(torch.FloatTensor(np.float32(state)).unsqueeze(0), requires_grad=True)
             # TODO: Given state, you should write code to get the Q value and chosen action
-        
-
-
-
-
-
+            q_value = self.forward(state)
+            action = q_value.max(1)[1].item()
+            return action
         else:
             action = random.randrange(self.env.action_space.n)
         return action
@@ -61,19 +61,26 @@ class QLearner(nn.Module):
     def copy_from(self, target):
         self.load_state_dict(target.state_dict())
 
-        
+
 def compute_td_loss(model, target_model, batch_size, gamma, replay_buffer):
     state, action, reward, next_state, done = replay_buffer.sample(batch_size)
 
     state = Variable(torch.FloatTensor(np.float32(state)))
-    next_state = Variable(torch.FloatTensor(np.float32(next_state)).squeeze(1), requires_grad=True)
+    next_state = Variable(torch.FloatTensor(np.float32(next_state)))
     action = Variable(torch.LongTensor(action))
     reward = Variable(torch.FloatTensor(reward))
     done = Variable(torch.FloatTensor(done))
     # implement the loss function here
 
+    q_values = model(state)
+    next_q_values = target_model(next_state)
 
-    
+    q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
+    next_q_values = next_q_values.max(1)[0]
+    expected_q_value = reward + gamma * next_q_values * (1 - done)
+
+    loss = (q_value - expected_q_value.detach()).pow(2).mean()
+
     return loss
 
 
@@ -90,6 +97,23 @@ class ReplayBuffer(object):
     def sample(self, batch_size):
         # TODO: Randomly sampling data with specific batch size from the buffer
 
+        """if len(self.buffer) == self.capacity:
+            prios = self.priorities
+        else:
+            prios = self.priorities[:self.pos]
+
+        probs = prios ** self.prob_alpha
+        probs /= probs.sum()"""
+
+        indices = np.random.choice(len(self.buffer), batch_size)
+        samples = [self.buffer[idx] for idx in indices]
+
+        batch = list(zip(*samples))
+        state = np.concatenate(batch[0])
+        action = batch[1]
+        reward = batch[2]
+        next_state = np.concatenate(batch[3])
+        done = batch[4]
 
         return state, action, reward, next_state, done
 
