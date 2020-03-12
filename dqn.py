@@ -51,8 +51,8 @@ class QLearner(nn.Module):
         if random.random() > epsilon:
             state = Variable(torch.FloatTensor(np.float32(state)).unsqueeze(0), requires_grad=True)
             # TODO: Given state, you should write code to get the Q value and chosen action
-            q_value = self.forward(state)
-            action = q_value.max(1)[1].item()
+            qvalues = self.forward(state)
+            action = qvalues.max(1)[1].item()
             return action
         else:
             action = random.randrange(self.env.action_space.n)
@@ -72,14 +72,14 @@ def compute_td_loss(model, target_model, batch_size, gamma, replay_buffer):
     done = Variable(torch.FloatTensor(done))
     # implement the loss function here
 
-    q_values = model(state)
-    next_q_values = target_model(next_state)
+    qvalues = model(state)
+    neststateqvalues = target_model(next_state)
+    qvalue = qvalues.gather(1, action.unsqueeze(1)).squeeze(1)
+    neststateqvalue = neststateqvalues.max(1)[0]
 
-    q_value = q_values.gather(1, action.unsqueeze(1)).squeeze(1)
-    next_q_values = next_q_values.max(1)[0]
-    expected_q_value = reward + gamma * next_q_values * (1 - done)
-
-    loss = (q_value - expected_q_value.detach()).pow(2).mean()
+    #apply the loss function
+    expectevalue = reward + gamma * neststateqvalue * (1 - done)
+    loss = (qvalue - expectevalue.detach()).pow(2).mean()
 
     return loss
 
@@ -97,23 +97,17 @@ class ReplayBuffer(object):
     def sample(self, batch_size):
         # TODO: Randomly sampling data with specific batch size from the buffer
 
-        """if len(self.buffer) == self.capacity:
-            prios = self.priorities
-        else:
-            prios = self.priorities[:self.pos]
+        pool = np.random.choice(len(self.buffer), batch_size)
+        samples = [self.buffer[i] for i in pool]
 
-        probs = prios ** self.prob_alpha
-        probs /= probs.sum()"""
+        ranges = list(zip(*samples))
 
-        indices = np.random.choice(len(self.buffer), batch_size)
-        samples = [self.buffer[idx] for idx in indices]
-
-        batch = list(zip(*samples))
-        state = np.concatenate(batch[0])
-        action = batch[1]
-        reward = batch[2]
-        next_state = np.concatenate(batch[3])
-        done = batch[4]
+        #assign random data
+        state = np.concatenate(ranges[0])
+        action = ranges[1]
+        reward = ranges[2]
+        next_state = np.concatenate(ranges[3])
+        done = ranges[4]
 
         return state, action, reward, next_state, done
 
